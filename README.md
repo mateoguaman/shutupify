@@ -15,7 +15,7 @@ video stream is copied bit for bit.
 You need [uv](https://docs.astral.sh/uv/) and ffmpeg. uv installs everything else
 (PyTorch, the separation library) into a cached environment on first run.
 
-**macOS** (Apple Silicon):
+**macOS** (Apple Silicon; Intel Macs aren't supported, as PyTorch no longer builds for them):
 
 ```sh
 brew install uv ffmpeg
@@ -43,8 +43,8 @@ cd shutupify
 ./shutupify.py some_video.mp4
 ```
 
-The first run takes a few minutes: it downloads PyTorch and the model (~640 MB,
-cached in `~/.cache/shutupify/models`).
+The first run takes a few minutes: uv fetches Python 3.12 and PyTorch, and the
+model (~640 MB) downloads to `~/.cache/shutupify/models`. Later runs start right away.
 
 ## Usage
 
@@ -72,7 +72,16 @@ open comparisons/movie/index.html                # xdg-open on Linux
 
 The video plays once while you switch soundtracks with the number keys; `v`
 toggles between the result and what was removed. Models download on first use
-(0.2–0.9 GB each).
+(about 4.5 GB for all of them), and reruns reuse finished renders.
+
+To reproduce the comparison the default model was chosen from, a dialogue scene
+from the open movie [Tears of Steel](https://mango.blender.org/) (CC-BY):
+
+```sh
+curl -O https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov
+./compare.py tears_of_steel_720p.mov --start 339 --duration 60
+open comparisons/tears_of_steel_720p/index.html
+```
 
 ## How it works, and why these models
 
@@ -99,3 +108,19 @@ models. These are trained on music, but they handle speech well.
 There is also research on separating film audio into dialogue, music, and effects
 ([BandIt](https://github.com/kwatcharasupat/bandit), the DnR datasets), but no
 ready-to-run models for it yet.
+
+## Maintenance
+
+Both scripts carry their dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)),
+with exact versions pinned for Linux and macOS in `shutupify.py.lock` and
+`compare.py.lock`. To move to newer versions:
+
+```sh
+uv lock --script shutupify.py --upgrade
+uv lock --script compare.py --upgrade
+```
+
+`.github/workflows/macos-smoke-test.yml` runs shutupify end to end on a macOS
+runner. Start it from the Actions tab or with `gh workflow run macos-smoke-test.yml`.
+It's manual-only because macOS runner minutes are expensive. GitHub's runners
+have no GPU access, so it covers the install and the CPU path, not MPS.
