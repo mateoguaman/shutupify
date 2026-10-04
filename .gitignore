@@ -1,0 +1,4 @@
+comparisons/
+*.novoice.*
+__pycache__/
+.DS_Store

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Removal Shootout</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+    --accent: #2f6fdb; --accent-soft: #e6eefc; --classical: #a35d00; --neural: #2f7d4f; --reference: #6b6b66;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
+      --accent: #6ea0ff; --accent-soft: #1e2a40; --classical: #e0a050; --neural: #6cc28f; --reference: #9a9a93;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  video { width: 100%; border-radius: 8px; background: #000; display: block; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); color: var(--text); padding: 7px 14px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .now { font-weight: 600; }
+  .keys { color: var(--muted); font-size: 13px; margin-left: auto; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; background: var(--panel); }
+  ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+  li { display: grid; grid-template-columns: 32px 1fr; gap: 12px; align-items: start; padding: 10px 12px;
+       background: var(--panel); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  li.on { border-color: var(--accent); background: var(--accent-soft); }
+  .num { font: 600 15px ui-monospace, monospace; text-align: center; padding-top: 1px; }
+  .name { font-weight: 600; }
+  .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-left: 8px; }
+  .tag.classical { color: var(--classical); } .tag.neural { color: var(--neural); } .tag.reference { color: var(--reference); }
+  .desc { color: var(--muted); font-size: 13px; }
+  @media (max-width: 600px) { .keys { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice removal shootout</h1>
+  <p class="sub"><!--TITLE--></p>
+  <video controls playsinline muted src="clip.mp4"></video>
+  <div class="bar">
+    <span class="now" id="now"></span>
+    <div class="seg" id="mode">
+      <button data-mode="result" class="on">Voice removed</button>
+      <button data-mode="removed">What got removed</button>
+    </div>
+    <span class="keys"><kbd>0</kbd>–<kbd>9</kbd> method · <kbd>v</kbd> toggle · <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> 5s</span>
+  </div>
+  <ol id="list"></ol>
+</main>
+<script>
+const VARIANTS = /*VARIANTS*/[];
+const video = document.querySelector("video");
+const list = document.getElementById("list");
+// Only the track being heard buffers fully (see sync); the rest fetch just their headers,
+// so the page stays quick to load even when served over a slow link.
+const track = src => Object.assign(new Audio(src), { preload: "metadata" });
+const tracks = VARIANTS.map(v => ({ result: track(v.result), removed: v.removed ? track(v.removed) : null }));
+let active = 0, mode = "result", playing = null;
+
+const current = () => (mode === "removed" && tracks[active].removed) || tracks[active].result;
+
+// The muted video is the clock; the selected audio element follows it.
+function sync(force) {
+  const a = current();
+  if (playing && playing !== a) playing.pause();
+  playing = a;
+  a.preload = "auto";
+  a.playbackRate = video.playbackRate;
+  if (force || Math.abs(a.currentTime - video.currentTime) > 0.08) a.currentTime = video.currentTime;
+  if (!video.paused && a.paused) a.play();
+  if (video.paused && !a.paused) a.pause();
+}
+["play", "pause", "seeked", "ratechange"].forEach(e => video.addEventListener(e, () => sync(true)));
+setInterval(() => { if (!video.paused) sync(false); }, 250);
+// The video's own soundtrack is the original, so keep it muted and route its volume slider to the tracks.
+video.addEventListener("volumechange", () => {
+  tracks.forEach(t => [t.result, t.removed].forEach(a => a && (a.volume = video.volume)));
+  if (!video.muted) video.muted = true;
+});
+
+function render() {
+  list.innerHTML = "";
+  VARIANTS.forEach((v, i) => {
+    const li = document.createElement("li");
+    li.className = i === active ? "on" : "";
+    li.innerHTML = `<div class="num">${i}</div><div><span class="name"></span><span class="tag ${v.family}">${v.family}</span><div class="desc"></div></div>`;
+    li.querySelector(".name").textContent = v.label;
+    li.querySelector(".desc").textContent = v.desc;
+    li.onclick = () => select(i);
+    list.appendChild(li);
+  });
+  const hasRemoved = !!tracks[active].removed;
+  document.getElementById("now").textContent =
+    `Hearing: ${VARIANTS[active].label}` + (mode === "removed" && hasRemoved ? " — removed part" : "");
+  document.querySelectorAll("#mode button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+}
+function select(i) { if (i < VARIANTS.length) { active = i; sync(true); render(); } }
+function setMode(m) { mode = m; sync(true); render(); }
+
+document.querySelectorAll("#mode button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea")) return;
+  if (/^[0-9]$/.test(e.key)) select(+e.key);
+  else if (e.key === "v") setMode(mode === "result" ? "removed" : "result");
+  else if (e.key === " ") { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 5); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); video.currentTime += 5; }
+});
+render();
+sync(true);
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Runs shutupify end to end on macOS. Manual trigger only: macOS runner minutes are pricey.
+name: macOS smoke test
+on: workflow_dispatch
+
+jobs:
+  smoke-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: brew install ffmpeg
+      - name: Make a clip with speech over a tone
+        run: |
+          say -o speech.aiff "This is a test. If you can hear me, the voice removal did not work."
+          ffmpeg -v error -f lavfi -i testsrc=duration=8:size=320x240:rate=25 -i speech.aiff \
+            -f lavfi -i "sine=frequency=220:duration=8" \
+            -filter_complex "[1:a]apad,atrim=0:8[s];[2:a]volume=0.3[t];[s][t]amix=inputs=2:normalize=0[a]" \
+            -map 0:v -map "[a]" -ac 2 -c:v libx264 -c:a aac clip.mp4
+      - run: ./shutupify.py clip.mp4 -o out.mp4 --save-vocals voice.wav
+      - name: Check outputs
+        run: |
+          ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of compact out.mp4
+          for f in clip.mp4 out.mp4 voice.wav; do
+            echo "$f: $(ffmpeg -i $f -af volumedetect -f null - 2>&1 | grep -o 'mean_volume.*')"
+          done
